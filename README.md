@@ -29,7 +29,7 @@ Interactive mode (use paramter -i) shows files that script thinks it can convert
 
 
 ## File Paths
-Are hardcoded to python file
+Hardcoded in the python file
 
 **Xbox Game Pass saves location:**
 ```
