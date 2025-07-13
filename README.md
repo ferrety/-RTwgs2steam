@@ -15,7 +15,7 @@ Make backups for GamePass and Steam save files before use!
 ## Usage
 
 ### Option 1: Run the convert_saves.bat
-Running convert_saves.bat will ask to install uv if it's not available.
+Running `convert_saves.bat` will ask to install uv if it's not available.
 Will use --interactive mode
 
 ### Option 2: Run the converter from shell
