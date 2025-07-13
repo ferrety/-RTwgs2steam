@@ -1,4 +1,4 @@
-# Wh4k: Rogue Trader savefile converter from GamePass to Steam
+# Wh4k: Rogue Trader savefile converter from Game Pass to Steam
 
 Script to convert Wh40k: Rogue trader Xbox Game Pass saves to Steam-compatible format
 
