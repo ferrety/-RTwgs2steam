@@ -15,9 +15,10 @@ import os
 import shutil
 import tempfile
 import zipfile
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import List, NamedTuple, Optional, Tuple
+from typing import List, Optional, Tuple
 
 import click
 from rich.console import Console
@@ -25,9 +26,11 @@ from rich.prompt import Confirm, Prompt
 from rich.table import Table
 
 
-class ContainerInfo(NamedTuple):
+@dataclass
+class ContainerInfo:
     """Information about a save container."""
 
+    idx: Optional[int]
     save_folder: Path
     container_folder: Path
     created_date: datetime
@@ -69,6 +72,7 @@ class XboxToSteamConverter:
             if f.is_dir() and len(f.name) > 20 and "_" in f.name
         ]
 
+        idx = 0
         for save_folder in save_folders:
             # Find container folders within each save folder
             container_folders = [
@@ -82,7 +86,7 @@ class XboxToSteamConverter:
                 # Skip empty containers
                 if len(files) < 5:
                     continue
-
+                idx += 1
                 # Get creation time
                 created_date = datetime.fromtimestamp(container_folder.stat().st_ctime)
 
@@ -91,6 +95,7 @@ class XboxToSteamConverter:
 
                 containers.append(
                     ContainerInfo(
+                        idx=None,
                         save_folder=save_folder,
                         container_folder=container_folder,
                         created_date=created_date,
@@ -104,32 +109,36 @@ class XboxToSteamConverter:
         containers.sort(key=lambda x: x.created_date, reverse=True)
         return containers
 
-    def display_containers_table(self, containers: List[ContainerInfo]) -> None:
+    def display_containers_table(
+        self, containers: List[ContainerInfo], title: str = "Available Save Containers"
+    ) -> None:
         """Display containers in a formatted table."""
-        table = Table(title="Available Save Containers")
+        table = Table(title="Available Saves")
         table.add_column("Index", justify="right", style="cyan", no_wrap=True)
         table.add_column("PC Name", style="bright_green")
         table.add_column("Save Name", style="bright_green")
         table.add_column("Created", style="blue")
 
-        namelen = (
-            min(
-                max(len(container.save_name) for container in containers)
-                if containers
-                else 10,
-                60,
-            )
-            + 1
+        max_length = max(
+            (
+                len(container.save_name)
+                for container in containers
+                if container.save_name
+            ),
+            default=10,  # Default to 10 if containers is empty or save_name is missing
         )
+        namelen = min(max_length, 60) + 1
 
         for i, container in enumerate(containers, 1):
+            if container.idx is None:
+                container.idx = i
             # Display save name or fallback to "Unknown"
             save_name = (
                 container.save_name if container.save_name else "[dim]Unknown[/dim]"
             )
 
             table.add_row(
-                str(i),
+                str(container.idx),
                 container.pc_name,
                 save_name[:namelen] + "..."
                 if container.save_name and len(container.save_name) > 40
@@ -593,23 +602,22 @@ class XboxToSteamConverter:
     def list_containers_command(self) -> bool:
         """List all available containers and allow selection for conversion."""
         try:
-            self.console.print("[bold]Discovering save containers...[/bold]")
+            self.console.print("[bold]Discovering saves...[/bold]")
             containers = self.discover_all_containers()
 
             if not containers:
-                self.console.print(
-                    "[red]No save containers found in WGS directory[/red]"
-                )
+                self.console.print("[red]No saves found in WGS directory[/red]")
                 return False
 
             selected_containers = self.select_containers_interactive(containers)
 
             if not selected_containers:
-                self.console.print("[yellow]No containers selected[/yellow]")
+                self.console.print("[yellow]No saves selected[/yellow]")
                 return False
 
             # Ask if user wants to convert the selected containers
-            if Confirm.ask("\nConvert selected containers to Steam format?"):
+            self.display_containers_table(selected_containers, "Selected Saves")
+            if Confirm.ask("\nConvert selected saves to Steam format?"):
                 fix_dlc = Confirm.ask("Fix DLC issues?", default=False)
                 dryrun = Confirm.ask(
                     "Dry run (don't copy to Steam folder)?", default=False
@@ -621,7 +629,7 @@ class XboxToSteamConverter:
                 return True
 
         except Exception as e:
-            self.console.print(f"[red]Error listing containers: {e}[/red]")
+            self.console.print(f"[red]Error listing saves: {e}[/red]")
             return False
 
     def extract_names_from_header(
@@ -631,7 +639,7 @@ class XboxToSteamConverter:
         try:
             files = [f for f in container_folder.iterdir() if f.is_file()]
             if not files:
-                return None
+                return None, None
 
             # Sort files by size and get second smallest (header file)
             files.sort(key=lambda x: x.stat().st_size)
@@ -647,7 +655,7 @@ class XboxToSteamConverter:
 
         except (json.JSONDecodeError, FileNotFoundError, PermissionError, Exception):
             # If we can't read the header file for any reason, return None
-            return None
+            return None, None
 
 @click.command()
 @click.option(

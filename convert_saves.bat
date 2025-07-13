@@ -5,7 +5,6 @@ echo.
 echo Starting conversion...
 echo.
 
-REM Check if uv is installed
 where uv >nul 2>nul
 if %ERRORLEVEL% NEQ 0 (
     echo uv is required but not installed.
@@ -15,10 +14,16 @@ if %ERRORLEVEL% NEQ 0 (
         pause
         exit /b 1
     )
-    echo You must relaunch this script after uv is installed.
+    
     echo For manual installation visit https://docs.astral.sh/uv/getting-started/installation/ for instructions
     echo Installing uv...
+    
     powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+    
+    echo.
+    echo =========================================================
+    echo You must relaunch this script after uv is installed.
+    echo =========================================================
     pause
     )
 
