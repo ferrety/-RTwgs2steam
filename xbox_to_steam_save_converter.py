@@ -10,7 +10,6 @@ This script converts Xbox Game Pass saves to Steam-compatible format by:
 5. Copying to Steam save directory
 """
 
-import argparse
 import json
 import os
 import shutil
@@ -20,6 +19,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import List, NamedTuple, Optional, Tuple
 
+import click
 from rich.console import Console
 from rich.prompt import Confirm, Prompt
 from rich.table import Table
@@ -109,6 +109,16 @@ class XboxToSteamConverter:
         table.add_column("Save Name", style="bright_green")
         table.add_column("Created", style="blue")
 
+        namelen = (
+            min(
+                max(len(container.save_name) for container in containers)
+                if containers
+                else 10,
+                60,
+            )
+            + 1
+        )
+
         for i, container in enumerate(containers, 1):
             # Display save name or fallback to "Unknown"
             save_name = (
@@ -117,7 +127,7 @@ class XboxToSteamConverter:
 
             table.add_row(
                 str(i),
-                save_name[:40] + "..."
+                save_name[:namelen] + "..."
                 if container.save_name and len(container.save_name) > 40
                 else save_name,
                 container.created_date.strftime("%Y-%m-%d %H:%M"),
@@ -630,51 +640,50 @@ class XboxToSteamConverter:
             # If we can't read the header file for any reason, return None
             return None
 
-def main():
-    """Main entry point."""
-    parser = argparse.ArgumentParser(description="Xbox Game Pass to Steam Save Converter")
-    parser.add_argument(
-        "--steam-save-path", "-s",
-        type=str,
-        default=None,
-        help="Custom Steam save path. Default is the standard Steam save location."
-    )
-    parser.add_argument(
-        "--dryrun",
-        action="store_true",
-        help="Leave the converted save file in the temp directory and do not copy to Steam folder.",
-    )
-    parser.add_argument(
-        "--fix-dlc",
-        action="store_true",
-        help="Remove DLC references from the save files.",
-    )
-    parser.add_argument(
-        "--list-containers",
-        "-l",
-        action="store_true",
-        help="List all available save containers and allow interactive selection.",
-    )
-    args = parser.parse_args()
-
-    converter = XboxToSteamConverter(steam_save_path=args.steam_save_path)
+@click.command()
+@click.option(
+    "--steam-save-path",
+    "-s",
+    type=str,
+    default=None,
+    help="Custom Steam save path. Default is the standard Steam save location.",
+)
+@click.option(
+    "--dryrun",
+    is_flag=True,
+    help="Leave the converted save file in the temp directory and do not copy to Steam folder.",
+)
+@click.option(
+    "--fix-dlc", is_flag=True, help="Remove DLC references from the save files."
+)
+@click.option(
+    "--list-containers",
+    "-l",
+    is_flag=True,
+    help="List all available save files and allow interactive selection.",
+)
+def main(
+    steam_save_path: Optional[str], dryrun: bool, fix_dlc: bool, list_containers: bool
+):
+    """Xbox Game Pass to Steam Save Converter for Warhammer 40000 Rogue Trader."""
+    converter = XboxToSteamConverter(steam_save_path=steam_save_path)
 
     try:
-        if args.list_containers:
+        if list_containers:
             success = converter.list_containers_command()
         else:
-            success = converter.convert_save(dryrun=args.dryrun, fix_dlc=args.fix_dlc)
+            success = converter.convert_save(dryrun=dryrun, fix_dlc=fix_dlc)
 
         if not success:
-            print("\nOperation failed. Please check the error messages above.")
+            click.echo("\nOperation failed. Please check the error messages above.")
             input("Press Enter to exit...")
             return 1
 
     except KeyboardInterrupt:
-        print("\n\nOperation cancelled by user.")
+        click.echo("\n\nOperation cancelled by user.")
         return 1
     except Exception as e:
-        print(f"\nUnexpected error: {e}")
+        click.echo(f"\nUnexpected error: {e}")
         input("Press Enter to exit...")
         return 1
 
@@ -683,4 +692,4 @@ def main():
 
 
 if __name__ == "__main__":
-    exit(main())
+    main()
