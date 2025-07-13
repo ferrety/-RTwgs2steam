@@ -7,6 +7,7 @@ requires-python = ">=3.8"
 dependencies = [
     "click>=8.0.0",
     "mypy>=1.14.1",
+    "python-magic-bin>=0.4.14",
     "rich>=14.0.0",
     "ruff>=0.12.3",
     "trogon>=0.5.0",

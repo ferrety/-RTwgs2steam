@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import List, Optional, Tuple
 
 import click
+import magic  # Ensure you have python-magic-bin installed
 from rich.console import Console
 from rich.prompt import Confirm, Prompt
 from rich.table import Table
@@ -194,7 +195,7 @@ class XboxToSteamConverter:
         self.console.print("\n[bold]Selection options:[/bold]")
         self.console.print("• Single: [cyan]1[/cyan]")
         self.console.print("• Multiple: [cyan]1,3,5[/cyan]")
-        self.console.print("• Range: [cyan]3-7[/cyan]")
+        self.console.print("• Ranges: [cyan]1,3-7,9,11-4[/cyan]")
         self.console.print("• All: [cyan]all[/cyan]")
         self.console.print("• Quit: [cyan]q[/cyan] or [cyan]quit[/cyan]")
 
@@ -264,7 +265,15 @@ class XboxToSteamConverter:
         print(f"Modified: {datetime.fromtimestamp(latest_container.stat().st_mtime)}")
         
         return latest_container
-        
+
+    def _file_type(self, file_path: Path) -> str:
+        """Identify file type using magic bytes."""
+        try:
+            mime_type = magic.from_file(str(file_path), mime=True)
+            return mime_type
+        except Exception:
+            return "unknown"
+
     def analyze_save_files(self, container_folder: Path) -> Tuple[Path, Path, Path, Path]:
         """Analyze files in container folder and identify each type by size."""
         files = [f for f in container_folder.iterdir() if f.is_file()]
@@ -272,18 +281,31 @@ class XboxToSteamConverter:
         if len(files) < 4:
             raise ValueError(f"Expected at least 4 files, found {len(files)}")
 
+        save_file = None
+        highres_image = None
+        lowres_image = None
+        header_file = None
+
+        for file in files:
+            if file.match("container.*"):
+                continue
+            file_type = self._file_type(file)
+            if file_type == "application/zip":
+                save_file = file
+            elif file_type == "image/png":
+                if (
+                    not highres_image
+                    or file.stat().st_size > highres_image.stat().st_size
+                ):
+                    lowres_image = highres_image
+                    highres_image = file
+                else:
+                    lowres_image = file
+            elif file_type == "text/plain":
+                header_file = file
+
+            print(f"  {file.name}: {file_type}")
         # Sort files by size (largest first)
-        files.sort(key=lambda x: x.stat().st_size, reverse=True)
-
-        print("Files found (sorted by size):")
-        for i, file in enumerate(files):
-            size_mb = file.stat().st_size / (1024 * 1024)
-            print(f"{i+1}. {file.name} ({size_mb:.2f} MB)")
-
-        save_file = files[0]  # Largest - actual save data
-        highres_image = files[1]  # Second largest - high res screenshot
-        lowres_image = files[2]  # Third largest - low res screenshot  
-        header_file = files[3]  # Smallest - header file
 
         return save_file, highres_image, lowres_image, header_file
         
