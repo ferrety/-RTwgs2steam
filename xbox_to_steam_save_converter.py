@@ -18,11 +18,27 @@ import tempfile
 import zipfile
 from datetime import datetime
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import List, NamedTuple, Optional, Tuple
+
+from rich.console import Console
+from rich.prompt import Confirm, Prompt
+from rich.table import Table
+
+
+class ContainerInfo(NamedTuple):
+    """Information about a save container."""
+
+    save_folder: Path
+    container_folder: Path
+    created_date: datetime
+    file_count: int
+    save_name: Optional[str]
+
 
 # Define save paths as strings with forward slashes for cross-platform compatibility
-STEAM_SAVE_PATH = r'AppData/LocalLow/Owlcat Games/Warhammer 40000 Rogue Trader/Saved Games'
-
+STEAM_SAVE_PATH = (
+    r"AppData/LocalLow/Owlcat Games/Warhammer 40000 Rogue Trader/Saved Games"
+)
 WGS_FOLDER_PATH = r'AppData/Local/Packages/OwlcatGames.3387926822CE4_197r75gc6ce9t/SystemAppData/wgs'
 
 
@@ -36,9 +52,150 @@ class XboxToSteamConverter:
             self.steam_save_path = Path(steam_save_path)
         else:
             self.steam_save_path = Path(self.user_profile) / STEAM_SAVE_PATH
+        self.console = Console()
 
-    # Removed find_owlcat_folder, now using fixed wgs_path
-                
+    def discover_all_containers(self) -> List[ContainerInfo]:
+        """Discover all save containers in the WGS directory."""
+        if not self.wgs_path.exists():
+            raise FileNotFoundError(f"WGS directory not found at {self.wgs_path}")
+
+        containers = []
+
+        # Find all save folders
+        save_folders = [
+            f
+            for f in self.wgs_path.iterdir()
+            if f.is_dir() and len(f.name) > 20 and "_" in f.name
+        ]
+
+        for save_folder in save_folders:
+            # Find container folders within each save folder
+            container_folders = [
+                f for f in save_folder.iterdir() if f.is_dir() and len(f.name) == 32
+            ]  # 32 hex chars
+
+            for container_folder in container_folders:
+                # Count files in container
+                files = [f for f in container_folder.iterdir() if f.is_file()]
+
+                # Skip empty containers
+                if len(files) < 5:
+                    continue
+
+                # Get creation time
+                created_date = datetime.fromtimestamp(container_folder.stat().st_ctime)
+
+                # Extract save name from header file
+                save_name = self.extract_save_name_from_header(container_folder)
+
+                containers.append(
+                    ContainerInfo(
+                        save_folder=save_folder,
+                        container_folder=container_folder,
+                        created_date=created_date,
+                        file_count=len(files),
+                        save_name=save_name,
+                    )
+                )
+
+        # Sort by creation date (newest first)
+        containers.sort(key=lambda x: x.created_date, reverse=True)
+        return containers
+
+    def display_containers_table(self, containers: List[ContainerInfo]) -> None:
+        """Display containers in a formatted table."""
+        table = Table(title="Available Save Containers")
+        table.add_column("Index", justify="right", style="cyan", no_wrap=True)
+        table.add_column("Save Name", style="bright_green")
+        table.add_column("Created", style="blue")
+
+        for i, container in enumerate(containers, 1):
+            # Display save name or fallback to "Unknown"
+            save_name = (
+                container.save_name if container.save_name else "[dim]Unknown[/dim]"
+            )
+
+            table.add_row(
+                str(i),
+                save_name[:40] + "..."
+                if container.save_name and len(container.save_name) > 40
+                else save_name,
+                container.created_date.strftime("%Y-%m-%d %H:%M"),
+            )
+
+        self.console.print(table)
+
+    def parse_selection_input(self, input_str: str, max_count: int) -> List[int]:
+        """Parse user selection input and return list of indices."""
+        input_str = input_str.strip().lower()
+
+        if input_str == "all":
+            return list(range(1, max_count + 1))
+
+        selections: List[int] = []
+        parts = input_str.split(",")
+
+        for part in parts:
+            part = part.strip()
+            if "-" in part:
+                # Handle ranges like "3-7"
+                try:
+                    start, end = map(int, part.split("-"))
+                    selections.extend(range(start, end + 1))
+                except ValueError:
+                    raise ValueError(f"Invalid range format: {part}")
+            else:
+                # Handle single numbers
+                try:
+                    selections.append(int(part))
+                except ValueError:
+                    raise ValueError(f"Invalid number: {part}")
+
+        # Validate indices
+        for idx in selections:
+            if idx < 1 or idx > max_count:
+                raise ValueError(f"Index {idx} out of range (1-{max_count})")
+
+        return sorted(list(set(selections)))  # Remove duplicates and sort
+
+    def select_containers_interactive(
+        self, containers: List[ContainerInfo]
+    ) -> List[ContainerInfo]:
+        """Allow user to select containers interactively."""
+        if not containers:
+            self.console.print("[red]No containers found![/red]")
+            return []
+
+        self.display_containers_table(containers)
+
+        self.console.print("\n[bold]Selection options:[/bold]")
+        self.console.print("• Single: [cyan]1[/cyan]")
+        self.console.print("• Multiple: [cyan]1,3,5[/cyan]")
+        self.console.print("• Range: [cyan]3-7[/cyan]")
+        self.console.print("• All: [cyan]all[/cyan]")
+        self.console.print("• Quit: [cyan]q[/cyan] or [cyan]quit[/cyan]")
+
+        while True:
+            try:
+                selection = Prompt.ask("\nSelect containers", default="1")
+
+                # Check for quit option
+                if selection.strip().lower() in ("q", "quit"):
+                    self.console.print("[yellow]Selection cancelled[/yellow]")
+                    return []
+
+                indices = self.parse_selection_input(selection, len(containers))
+                selected_containers = [containers[i - 1] for i in indices]
+
+                self.console.print(
+                    f"\n[green]Selected {len(selected_containers)} container(s)[/green]"
+                )
+                return selected_containers
+
+            except ValueError as e:
+                self.console.print(f"[red]Error: {e}[/red]")
+                self.console.print("Please try again.")
+
     def find_latest_save_folder(self) -> Optional[Path]:
         """Find the latest save folder in the fixed WGS directory."""
         if not self.wgs_path.exists():
@@ -295,6 +452,183 @@ class XboxToSteamConverter:
             print(f"\n❌ Error during conversion: {e}")
             return False
 
+    def convert_multiple_saves(
+        self,
+        containers: List[ContainerInfo],
+        dryrun: bool = False,
+        fix_dlc: bool = False,
+    ) -> bool:
+        """Convert multiple container saves to Steam format."""
+        success_count = 0
+
+        for i, container in enumerate(containers, 1):
+            self.console.print(
+                f"\n[bold cyan]Processing container {i}/{len(containers)}[/bold cyan]"
+            )
+            self.console.print(f"Save folder: {container.save_folder.name}")
+            self.console.print(f"Container: {container.container_folder.name}")
+
+            try:
+                save_file, highres_image, lowres_image, header_file = (
+                    self.analyze_save_files(container.container_folder)
+                )
+
+                if dryrun:
+                    temp_path = Path(r"c:/temp/RTWGS")
+                    temp_path.mkdir(parents=True, exist_ok=True)
+                    extract_dir = self.extract_save_data(save_file, temp_path)
+
+                    # Use container name in output filename
+                    output_name = (
+                        f"gamepass_save_{container.container_folder.name[:8]}.zks"
+                    )
+                    zks_file = self.create_steam_save_with_name(
+                        extract_dir,
+                        temp_path,
+                        highres_image,
+                        lowres_image,
+                        header_file,
+                        output_name,
+                        fix_dlc,
+                    )
+                    self.console.print(f"[green]✓ Converted: {zks_file}[/green]")
+                    success_count += 1
+                else:
+                    with tempfile.TemporaryDirectory() as temp_dir:
+                        temp_path = Path(temp_dir)
+                        extract_dir = self.extract_save_data(save_file, temp_path)
+
+                        # Use container name in output filename
+                        output_name = (
+                            f"gamepass_save_{container.container_folder.name[:8]}.zks"
+                        )
+                        zks_file = self.create_steam_save_with_name(
+                            extract_dir,
+                            temp_path,
+                            highres_image,
+                            lowres_image,
+                            header_file,
+                            output_name,
+                            fix_dlc,
+                        )
+
+                        if self.copy_to_steam_directory(zks_file):
+                            self.console.print(
+                                f"[green]✓ Converted and copied: {output_name}[/green]"
+                            )
+                            success_count += 1
+                        else:
+                            self.console.print(
+                                f"[red]✗ Failed to copy: {output_name}[/red]"
+                            )
+
+            except Exception as e:
+                self.console.print(f"[red]✗ Error processing container: {e}[/red]")
+
+        if success_count == len(containers):
+            self.console.print(
+                f"\n[green]✅ All {success_count} containers converted successfully![/green]"
+            )
+            return True
+        elif success_count > 0:
+            self.console.print(
+                f"\n[yellow]⚠ {success_count}/{len(containers)} containers converted[/yellow]"
+            )
+            return True
+        else:
+            self.console.print(
+                "\n[red]❌ No containers were converted successfully[/red]"
+            )
+            return False
+
+    def create_steam_save_with_name(
+        self,
+        extract_dir: Path,
+        output_path: Path,
+        highres_image: Path,
+        lowres_image: Path,
+        header_file: Path,
+        output_name: str,
+        fix_dlc: bool = False,
+    ) -> Path:
+        """Create Steam-compatible .zks file with custom name."""
+        # First copy and rename the supporting files to extract_dir
+        self.copy_and_rename_files(
+            highres_image, lowres_image, header_file, extract_dir
+        )
+
+        # Fix DLC issues if requested
+        if fix_dlc:
+            self.fix_dlc_issues(extract_dir)
+
+        zks_file = output_path / output_name
+
+        print(f"Creating Steam save file: {zks_file}")
+
+        with zipfile.ZipFile(zks_file, "w", zipfile.ZIP_DEFLATED) as zip_ref:
+            for file_path in extract_dir.rglob("*"):
+                if file_path.is_file():
+                    arcname = file_path.relative_to(extract_dir)
+                    zip_ref.write(file_path, arcname)
+
+        size_mb = zks_file.stat().st_size / (1024 * 1024)
+        print(f"Created {zks_file.name} ({size_mb:.2f} MB)")
+
+        return zks_file
+
+    def list_containers_command(self) -> bool:
+        """List all available containers and allow selection for conversion."""
+        try:
+            self.console.print("[bold]Discovering save containers...[/bold]")
+            containers = self.discover_all_containers()
+
+            if not containers:
+                self.console.print(
+                    "[red]No save containers found in WGS directory[/red]"
+                )
+                return False
+
+            selected_containers = self.select_containers_interactive(containers)
+
+            if not selected_containers:
+                self.console.print("[yellow]No containers selected[/yellow]")
+                return False
+
+            # Ask if user wants to convert the selected containers
+            if Confirm.ask("\nConvert selected containers to Steam format?"):
+                fix_dlc = Confirm.ask("Fix DLC issues?", default=False)
+                dryrun = Confirm.ask(
+                    "Dry run (don't copy to Steam folder)?", default=False
+                )
+
+                return self.convert_multiple_saves(selected_containers, dryrun, fix_dlc)
+            else:
+                self.console.print("[yellow]Conversion cancelled[/yellow]")
+                return True
+
+        except Exception as e:
+            self.console.print(f"[red]Error listing containers: {e}[/red]")
+            return False
+
+    def extract_save_name_from_header(self, container_folder: Path) -> Optional[str]:
+        """Extract save name from the header JSON file (smallest file in container)."""
+        try:
+            files = [f for f in container_folder.iterdir() if f.is_file()]
+            if not files:
+                return None
+
+            # Sort files by size and get second smallest (header file)
+            files.sort(key=lambda x: x.stat().st_size)
+            header_file = files[1]
+
+            # Try to read the JSON and extract the Name field
+            with open(header_file, "r", encoding="utf-8") as f:
+                header_data = json.load(f)
+                return header_data.get("Name", None)
+
+        except (json.JSONDecodeError, FileNotFoundError, PermissionError, Exception):
+            # If we can't read the header file for any reason, return None
+            return None
 
 def main():
     """Main entry point."""
@@ -315,14 +649,24 @@ def main():
         action="store_true",
         help="Remove DLC references from the save files.",
     )
+    parser.add_argument(
+        "--list-containers",
+        "-l",
+        action="store_true",
+        help="List all available save containers and allow interactive selection.",
+    )
     args = parser.parse_args()
 
     converter = XboxToSteamConverter(steam_save_path=args.steam_save_path)
 
     try:
-        success = converter.convert_save(dryrun=args.dryrun, fix_dlc=args.fix_dlc)
+        if args.list_containers:
+            success = converter.list_containers_command()
+        else:
+            success = converter.convert_save(dryrun=args.dryrun, fix_dlc=args.fix_dlc)
+
         if not success:
-            print("\nConversion failed. Please check the error messages above.")
+            print("\nOperation failed. Please check the error messages above.")
             input("Press Enter to exit...")
             return 1
 
