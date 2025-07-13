@@ -33,6 +33,7 @@ class ContainerInfo(NamedTuple):
     created_date: datetime
     file_count: int
     save_name: Optional[str]
+    pc_name: Optional[str]
 
 
 # Define save paths as strings with forward slashes for cross-platform compatibility
@@ -86,7 +87,7 @@ class XboxToSteamConverter:
                 created_date = datetime.fromtimestamp(container_folder.stat().st_ctime)
 
                 # Extract save name from header file
-                save_name = self.extract_save_name_from_header(container_folder)
+                save_name, pc_name = self.extract_names_from_header(container_folder)
 
                 containers.append(
                     ContainerInfo(
@@ -95,6 +96,7 @@ class XboxToSteamConverter:
                         created_date=created_date,
                         file_count=len(files),
                         save_name=save_name,
+                        pc_name=pc_name,
                     )
                 )
 
@@ -106,6 +108,7 @@ class XboxToSteamConverter:
         """Display containers in a formatted table."""
         table = Table(title="Available Save Containers")
         table.add_column("Index", justify="right", style="cyan", no_wrap=True)
+        table.add_column("PC Name", style="bright_green")
         table.add_column("Save Name", style="bright_green")
         table.add_column("Created", style="blue")
 
@@ -127,6 +130,7 @@ class XboxToSteamConverter:
 
             table.add_row(
                 str(i),
+                container.pc_name,
                 save_name[:namelen] + "..."
                 if container.save_name and len(container.save_name) > 40
                 else save_name,
@@ -620,7 +624,9 @@ class XboxToSteamConverter:
             self.console.print(f"[red]Error listing containers: {e}[/red]")
             return False
 
-    def extract_save_name_from_header(self, container_folder: Path) -> Optional[str]:
+    def extract_names_from_header(
+        self, container_folder: Path
+    ) -> Tuple[Optional[str], Optional[str]]:
         """Extract save name from the header JSON file (smallest file in container)."""
         try:
             files = [f for f in container_folder.iterdir() if f.is_file()]
@@ -634,7 +640,10 @@ class XboxToSteamConverter:
             # Try to read the JSON and extract the Name field
             with open(header_file, "r", encoding="utf-8") as f:
                 header_data = json.load(f)
-                return header_data.get("Name", None)
+                save_name = header_data.get("Name", None)
+                pc_name = header_data.get("PlayerCharacterName", None)
+
+                return (save_name, pc_name)
 
         except (json.JSONDecodeError, FileNotFoundError, PermissionError, Exception):
             # If we can't read the header file for any reason, return None
@@ -663,7 +672,7 @@ class XboxToSteamConverter:
     help="List all available save files and allow interactive selection.",
 )
 def main(
-    steam_save_path: Optional[str], dryrun: bool, fix_dlc: bool, interactive: bool
+q    steam_save_path: Optional[str], dryrun: bool, fix_dlc: bool, interactive: bool
 ):
     """Xbox Game Pass to Steam Save Converter for Warhammer 40000 Rogue Trader."""
     converter = XboxToSteamConverter(steam_save_path=steam_save_path)

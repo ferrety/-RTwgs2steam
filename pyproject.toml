@@ -1,0 +1,19 @@
+[project]
+name = "rtwgs2steam"
+version = "0.1.0"
+description = "Xbox Game Pass to Steam Save Converter for Warhammer 40000 Rogue Trader"
+readme = "README.md"
+requires-python = ">=3.8"
+dependencies = [
+    "click>=8.0.0",
+    "mypy>=1.14.1",
+    "rich>=14.0.0",
+    "ruff>=0.12.3",
+    "trogon>=0.5.0",
+]
+
+
+[project.urls]
+Homepage = "https://github.com/ferrety/rtwgs2steam"
+Repository = "https://github.com/ferrety/rtwgs2steam"
+

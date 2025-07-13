@@ -12,6 +12,7 @@ if %ERRORLEVEL% NEQ 0 (
     set /p INSTALL_UV="Do you want to install uv now? (Y/N): "
     if /i "%INSTALL_UV%" NEQ "Y" (
         echo Installation cancelled. Exiting...
+        pause
         exit /b 1
     )
     echo Installing uv...
