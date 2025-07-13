@@ -657,19 +657,19 @@ class XboxToSteamConverter:
     "--fix-dlc", is_flag=True, help="Remove DLC references from the save files."
 )
 @click.option(
-    "--list-containers",
-    "-l",
+    "--interactive",
+    "-i",
     is_flag=True,
     help="List all available save files and allow interactive selection.",
 )
 def main(
-    steam_save_path: Optional[str], dryrun: bool, fix_dlc: bool, list_containers: bool
+    steam_save_path: Optional[str], dryrun: bool, fix_dlc: bool, interactive: bool
 ):
     """Xbox Game Pass to Steam Save Converter for Warhammer 40000 Rogue Trader."""
     converter = XboxToSteamConverter(steam_save_path=steam_save_path)
 
     try:
-        if list_containers:
+        if interactive:
             success = converter.list_containers_command()
         else:
             success = converter.convert_save(dryrun=dryrun, fix_dlc=fix_dlc)
