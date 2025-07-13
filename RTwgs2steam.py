@@ -672,7 +672,7 @@ class XboxToSteamConverter:
     help="List all available save files and allow interactive selection.",
 )
 def main(
-q    steam_save_path: Optional[str], dryrun: bool, fix_dlc: bool, interactive: bool
+    steam_save_path: Optional[str], dryrun: bool, fix_dlc: bool, interactive: bool
 ):
     """Xbox Game Pass to Steam Save Converter for Warhammer 40000 Rogue Trader."""
     converter = XboxToSteamConverter(steam_save_path=steam_save_path)
