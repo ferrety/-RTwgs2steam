@@ -11,6 +11,7 @@ This script converts Xbox Game Pass saves to Steam-compatible format by:
 """
 
 import argparse
+import json
 import os
 import shutil
 import tempfile
@@ -136,13 +137,77 @@ class XboxToSteamConverter:
         print(f"  {highres_image.name} -> highres.png")
         print(f"  {lowres_image.name} -> header.png")
         print(f"  {header_file.name} -> header.json")
-        
-    def create_steam_save(self, extract_dir: Path, output_path: Path, 
-                         highres_image: Path, lowres_image: Path, header_file: Path) -> Path:
+
+    def fix_dlc_issues(self, extract_dir: Path):
+        """Fix DLC issues by clearing DLC-related fields in player.json and header.json."""
+        print("Fixing DLC issues...")
+
+        # Fix header.json
+        header_json_path = extract_dir / "header.json"
+        if header_json_path.exists():
+            try:
+                with open(header_json_path, "r", encoding="utf-8") as f:
+                    header_data = json.load(f)
+
+                if "m_DlcRewards" in header_data:
+                    header_data["m_DlcRewards"] = []
+                    print("  Cleared m_DlcRewards in header.json")
+
+                with open(header_json_path, "w", encoding="utf-8") as f:
+                    json.dump(header_data, f, indent=2)
+
+            except (json.JSONDecodeError, Exception) as e:
+                print(f"  Warning: Could not fix header.json: {e}")
+
+        # Fix player.json
+        player_json_path = extract_dir / "player.json"
+        if player_json_path.exists():
+            try:
+                with open(player_json_path, "r", encoding="utf-8") as f:
+                    player_data = json.load(f)
+
+                dlc_fields_fixed = []
+                if "m_StartNewGameAdditionalContentDlcStatus" in player_data:
+                    player_data["m_StartNewGameAdditionalContentDlcStatus"] = []
+                    dlc_fields_fixed.append("m_StartNewGameAdditionalContentDlcStatus")
+
+                if "UsedDlcRewards" in player_data:
+                    player_data["UsedDlcRewards"] = []
+                    dlc_fields_fixed.append("UsedDlcRewards")
+
+                if "ClaimedDlcRewards" in player_data:
+                    player_data["ClaimedDlcRewards"] = []
+                    dlc_fields_fixed.append("ClaimedDlcRewards")
+
+                if dlc_fields_fixed:
+                    print(f"  Cleared {', '.join(dlc_fields_fixed)} in player.json")
+
+                with open(player_json_path, "w", encoding="utf-8") as f:
+                    json.dump(player_data, f, indent=2)
+
+            except (json.JSONDecodeError, Exception) as e:
+                print(f"  Warning: Could not fix player.json: {e}")
+
+        if not header_json_path.exists() and not player_json_path.exists():
+            print("  No JSON files found to fix")
+
+    def create_steam_save(
+        self,
+        extract_dir: Path,
+        output_path: Path,
+        highres_image: Path,
+        lowres_image: Path,
+        header_file: Path,
+        fix_dlc: bool = False,
+    ) -> Path:
         """Create the Steam-compatible .zks file."""
         # First copy and rename the supporting files to extract_dir
         self.copy_and_rename_files(highres_image, lowres_image, header_file, extract_dir)
-        
+
+        # Fix DLC issues if requested
+        if fix_dlc:
+            self.fix_dlc_issues(extract_dir)
+
         zks_file = output_path / 'gamepass_save.zks'
         
         print(f"Creating Steam save file: {zks_file}")
@@ -175,7 +240,7 @@ class XboxToSteamConverter:
             print(f"Error copying to Steam directory: {e}")
             return False
 
-    def convert_save(self, dryrun: bool = False) -> bool:
+    def convert_save(self, dryrun: bool = False, fix_dlc: bool = False) -> bool:
         """Main conversion process."""
         print("=== Xbox Game Pass to Steam Save Converter ===")
         print("For Warhammer 40000 Rogue Trader\n")
@@ -195,7 +260,14 @@ class XboxToSteamConverter:
                 temp_path = Path(r"c:/temp/RTWGS")
                 temp_path.mkdir(parents=True, exist_ok=True)
                 extract_dir = self.extract_save_data(save_file, temp_path)
-                zks_file = self.create_steam_save(extract_dir, temp_path, highres_image, lowres_image, header_file)
+                zks_file = self.create_steam_save(
+                    extract_dir,
+                    temp_path,
+                    highres_image,
+                    lowres_image,
+                    header_file,
+                    fix_dlc,
+                )
                 print(f"\nDry run: Converted save file {zks_file}")
                 print("No files were copied to the Steam save directory.")
                 return True
@@ -203,7 +275,14 @@ class XboxToSteamConverter:
                 with tempfile.TemporaryDirectory() as temp_dir:
                     temp_path = Path(temp_dir)
                     extract_dir = self.extract_save_data(save_file, temp_path)
-                    zks_file = self.create_steam_save(extract_dir, temp_path, highres_image, lowres_image, header_file)
+                    zks_file = self.create_steam_save(
+                        extract_dir,
+                        temp_path,
+                        highres_image,
+                        lowres_image,
+                        header_file,
+                        fix_dlc,
+                    )
                     success = self.copy_to_steam_directory(zks_file)
                     if success:
                         print("\n✅ Conversion completed successfully!")
@@ -231,12 +310,17 @@ def main():
         action="store_true",
         help="Leave the converted save file in the temp directory and do not copy to Steam folder.",
     )
+    parser.add_argument(
+        "--fix-dlc",
+        action="store_true",
+        help="Remove DLC references from the save files.",
+    )
     args = parser.parse_args()
 
     converter = XboxToSteamConverter(steam_save_path=args.steam_save_path)
 
     try:
-        success = converter.convert_save(dryrun=args.dryrun)
+        success = converter.convert_save(dryrun=args.dryrun, fix_dlc=args.fix_dlc)
         if not success:
             print("\nConversion failed. Please check the error messages above.")
             input("Press Enter to exit...")
